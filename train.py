@@ -15,7 +15,7 @@ def train():
     threshold = 0.1164 # Example threshold (You'll need to calculate this based on your normalized 'tp' distribution)
 
     print("Loading data...")
-    dataset = CodespaceWeatherDataset('telangana_weather_data.nc', seq_length=24)
+    dataset = CodespaceWeatherDataset('supporting_files/telangana_weather_data.nc', seq_length=24)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
     model = ExtremeWeatherModel(input_channels=5, hidden_dim=16).to(device)

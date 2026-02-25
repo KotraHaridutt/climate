@@ -2,7 +2,7 @@
 import zipfile
 import os
 
-zip_path = 'telangana_weather_data.nc'
+zip_path = '../telangana_weather_data.nc'
 extract_dir = '.'
 
 if os.path.exists(zip_path):
