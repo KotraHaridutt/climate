@@ -2,8 +2,8 @@
 import zipfile
 import os
 
-zip_path = '../telangana_weather_data.nc'
-extract_dir = '.'
+zip_path = '../testing/telangana_test_data.nc'
+extract_dir = '../testing/'
 
 if os.path.exists(zip_path):
     print(f"Found ZIP file: {zip_path}")

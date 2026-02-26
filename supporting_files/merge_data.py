@@ -4,7 +4,7 @@ import sys
 
 print("Loading data files...")
 try:
-    ds_accum = xr.open_dataset('data_stream-oper_stepType-accum.nc')
+    ds_accum = xr.open_dataset('../testing/data_stream-oper_stepType-accum.nc')
     print(f"✓ Loaded accumulated file")
     print(f"  Dimensions: {dict(ds_accum.dims)}")
     print(f"  Coordinates: {list(ds_accum.coords)}")
@@ -14,7 +14,7 @@ except Exception as e:
     sys.exit(1)
 
 try:
-    ds_instant = xr.open_dataset('data_stream-oper_stepType-instant.nc')
+    ds_instant = xr.open_dataset('../testing/data_stream-oper_stepType-instant.nc')
     print(f"✓ Loaded instantaneous file")
     print(f"  Dimensions: {dict(ds_instant.dims)}")
     print(f"  Coordinates: {list(ds_instant.coords)}")
@@ -39,7 +39,7 @@ try:
     merged = xr.merge([ds_accum, ds_instant], join='override')
     
     # Save as telangana_weather_data.nc
-    merged.to_netcdf('telangana_weather_data.nc')
+    merged.to_netcdf('../testing/telangana_weather_test_data.nc')
     print("\n✓ Successfully merged and saved to telangana_weather_data.nc")
     
 except Exception as e:
