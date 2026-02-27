@@ -7,7 +7,7 @@ import xarray as xr
 import pandas as pd
 import folium
 from folium.plugins import HeatMap
-from streamlit_folium import st_folium
+import streamlit.components.v1 as components  # <--- CHANGED THIS IMPORT
 import plotly.graph_objects as go
 from shapely.geometry import shape, Point
 from shapely.ops import unary_union
@@ -184,7 +184,8 @@ if st.session_state.api_data:
         if heat_data:
             HeatMap(heat_data, radius=35, blur=20, min_opacity=0.4).add_to(m)
 
-        st_folium(m, width=600, height=450)
+        # --- CHANGED THIS LINE TO FIX CLOUD RUN RENDERING ---
+        components.html(m._repr_html_(), height=450)
 
     with col2:
         st.subheader("Precipitation Timeline Analysis")
