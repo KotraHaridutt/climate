@@ -3,4 +3,11 @@ xarray
 dask
 netCDF4
 numpy
-torch
+torch --index-url https://download.pytorch.org/whl/cpu
+streamlit
+requests 
+folium 
+streamlit-folium 
+plotly
+fastapi 
+uvicorn

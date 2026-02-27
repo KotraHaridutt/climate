@@ -1,4 +1,4 @@
-# app.py
+
 import streamlit as st
 import requests
 import numpy as np
@@ -7,81 +7,88 @@ from streamlit_folium import st_folium
 import plotly.graph_objects as go
 
 st.set_page_config(layout="wide", page_title="Extreme Weather AI")
-
 st.title("🌩️ Extreme Precipitation Early Warning System")
-st.markdown("Powered by ConvLSTM & Copernicus ERA5 Reanalysis Data")
+st.markdown("**(Spatio-Temporal ConvLSTM Anomaly Detector)**")
 
-# Sidebar Controls
+if 'api_data' not in st.session_state:
+    st.session_state.api_data = None
+if 'current_mode' not in st.session_state:
+    st.session_state.current_mode = None
+
 st.sidebar.header("System Controls")
-user_threshold = st.sidebar.slider(
-    "Warning Threshold (%)", 
-    min_value=1.0, max_value=100.0, value=11.6, step=1.0,
-    help="Adjust the probability threshold required to trigger a red alert."
-) / 100.0
+data_mode = st.sidebar.radio(
+    "Select Data Source:",
+    ("Live Secunderabad Data (Current)", "Historical Storm Simulation (Sept 2023)")
+)
 
-if st.sidebar.button("Predict Next Hour", type="primary"):
-    with st.spinner("Fetching 24-hour climate history & running ConvLSTM..."):
+user_threshold = st.sidebar.slider("Warning Threshold (%)", 1.0, 100.0, 11.6, 1.0) / 100.0
+
+if st.sidebar.button("Run Prediction Pipeline", type="primary"):
+    with st.spinner("Processing spatial grid and running ConvLSTM..."):
+        # Route the API call based on the radio button!
+        api_endpoint = "predict_live" if "Live" in data_mode else "predict_historical"
         
-        # 1. Ping the FastAPI Backend
-        response = requests.get("http://127.0.0.1:8000/predict_next_hour")
-        
+        response = requests.get(f"http://127.0.0.1:8000/{api_endpoint}")
         if response.status_code == 200:
-            data = response.json()
-            prob_grid = np.array(data["probability_grid"])
-            proof = data["proof_metrics"]
-            
-            col1, col2 = st.columns([2, 1])
-            
-            # --- COLUMN 1: The Map ---
-            with col1:
-                st.subheader("Geographical Risk Map")
-                # Center map over Telangana
-                m = folium.Map(location=[17.5, 79.5], zoom_start=6, tiles="CartoDB dark_matter")
-                
-                # Overlay the 21x21 grid
-                # Bounding box: [20, 77] (NW) to [15, 82] (SE)
-                lats = np.linspace(20, 15, 21)
-                lons = np.linspace(77, 82, 21)
-                
-                for i in range(21):
-                    for j in range(21):
-                        prob = prob_grid[i, j]
-                        if prob >= user_threshold:
-                            # Draw a red rectangle for danger zones
-                            folium.Rectangle(
-                                bounds=[[lats[i], lons[j]], [lats[i]-0.25, lons[j]+0.25]],
-                                color="red",
-                                fill=True,
-                                fill_opacity=prob, # Higher probability = darker red
-                                tooltip=f"Risk: {prob*100:.1f}%"
-                            ).add_to(m)
-                            
-                st_folium(m, width=700, height=500)
-
-            # --- COLUMN 2: The "Proof" & Analytics ---
-            with col2:
-                st.subheader("Diagnostic Proof")
-                st.info(f"Target Time: {data['target_time']}\n\nDominant Wind: {proof['dominant_wind_direction']}")
-                
-                st.markdown("**Why is this triggering?**")
-                st.write("The model detected a sharp escalation in regional moisture (Dewpoint) over the last 6 hours, combined with converging wind vectors.")
-                
-                # Plot the 24-hour trend to prove it to the user
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    y=proof['moisture_trend_24h'], 
-                    mode='lines+markers',
-                    name='Moisture Trend',
-                    line=dict(color='cyan', width=2)
-                ))
-                fig.update_layout(
-                    title="24-Hour Regional Moisture Context",
-                    xaxis_title="Hours Ago (T-24 to T-0)",
-                    yaxis_title="Normalized Intensity",
-                    height=300,
-                    margin=dict(l=0, r=0, t=30, b=0)
-                )
-                st.plotly_chart(fig, use_container_width=True)
-                
+            st.session_state.api_data = response.json()
+            st.session_state.current_mode = data_mode
         else:
-            st.error("Failed to connect to the prediction API.")
+            st.error("Backend API failed.")
+
+if st.session_state.api_data:
+    data = st.session_state.api_data
+    hist = data["historical_24h"]
+    future = data["future_24h_precip"]
+    prob_grid = np.array(data["probability_grid"])
+    mode_label = st.session_state.current_mode.split('(')[0].strip()
+    
+    st.divider()
+    st.subheader(f"Atmospheric Conditions ({mode_label})")
+    
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Dewpoint (Moisture)", f"{hist['dew'][-1]:.1f} °C") 
+    m2.metric("Surface Pressure", f"{hist['pressure'][-1]:.0f} hPa")
+    m3.metric("U-Wind Vector", f"{hist['u_wind'][-1]:.1f} m/s")
+    m4.metric("V-Wind Vector", f"{hist['v_wind'][-1]:.1f} m/s")
+    m5.metric("Last 24h Rainfall", f"{sum(hist['precip']):.1f} mm")
+    st.divider()
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.subheader("Predicted Spatial Risk Heatmap")
+        
+        max_risk = np.max(prob_grid) * 100
+        if max_risk < (user_threshold * 100):
+            st.success(f"**Status: Clear.** Maximum regional risk is {max_risk:.1f}%. The ConvLSTM detects stable conditions. Map remains clear.")
+        else:
+            st.error(f"**Status: Extreme Danger Detected.** The ConvLSTM identified a non-linear moisture spike. Areas exceeding the {user_threshold*100:.1f}% threshold are highlighted.")
+
+        m = folium.Map(location=[17.5, 79.5], zoom_start=6, tiles="CartoDB dark_matter")
+        lats, lons = np.linspace(20, 15, 21), np.linspace(77, 82, 21)
+        
+        for i in range(21):
+            for j in range(21):
+                prob = prob_grid[i, j]
+                if prob >= user_threshold:
+                    folium.Rectangle(
+                        bounds=[[lats[i], lons[j]], [lats[i]-0.25, lons[j]+0.25]],
+                        color="red", weight=0, fill=True, fill_opacity=float(prob)*0.7, tooltip=f"Risk: {prob*100:.1f}%"
+                    ).add_to(m)
+        st_folium(m, width=600, height=400)
+
+    with col2:
+        st.subheader("Precipitation Timeline Analysis")
+        
+        if max_risk < (user_threshold * 100):
+            st.info("💡 **Graph Context:** Grey line is actual recent rainfall. Dotted cyan line is flat because the autoregressive model predicts no imminent disruption.")
+        else:
+            st.warning("💡 **Graph Context:** Grey line maps the storm's historical buildup. Dotted cyan curve represents the ConvLSTM's projected intensity over the next 24 hours.")
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=list(range(-24, 0)), y=hist['precip'], mode='lines', name='Actual (Past 24h)', line=dict(color='gray', width=3)))
+        fig.add_trace(go.Scatter(x=list(range(0, 24)), y=future, mode='lines', name='Predicted (Next 24h)', line=dict(color='cyan', width=3, dash='dot')))
+        fig.add_vline(x=0, line_width=2, line_dash="dash", line_color="red", annotation_text="T-Zero")
+        
+        fig.update_layout(xaxis_title="Hours from T-Zero", yaxis_title="Rainfall (mm)", height=400)
+        st.plotly_chart(fig, use_container_width=True)
