@@ -1,0 +1,15 @@
+cdsapi
+xarray
+dask
+netCDF4
+numpy
+torch --index-url https://download.pytorch.org/whl/cpu
+streamlit
+requests 
+pandas
+folium 
+streamlit-folium 
+plotly
+shapely
+fastapi 
+uvicorn
