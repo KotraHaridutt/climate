@@ -5,6 +5,7 @@ import numpy as np
 import requests
 import math
 import xarray as xr
+import pandas as pd
 from model import ExtremeWeatherModel 
 
 app = FastAPI(title="Extreme Weather Prediction API")
@@ -19,7 +20,6 @@ except Exception as e:
 
 # --- HELPER FUNCTIONS ---
 def run_autoregressive_loop(initial_window, max_precip_scale=20.0):
-    """Runs the 24-step loop to predict tomorrow's trajectory."""
     current_window = initial_window.clone()
     future_precip = []
     
@@ -28,14 +28,12 @@ def run_autoregressive_loop(initial_window, max_precip_scale=20.0):
             raw_logits = model(current_window)
             pred_prob = torch.sigmoid(raw_logits)
             
-            # Dampen feedback slightly to prevent OOD explosion on live flat data
             dampened_pred = pred_prob * 0.90 
             
             last_vars = current_window[:, -1:, 1:, :, :]
             new_step = torch.cat([dampened_pred.unsqueeze(2), last_vars], dim=2) 
             current_window = torch.cat([current_window[:, 1:, :, :, :], new_step], dim=1)
             
-            # Center pixel (10, 10) for the UI chart
             future_precip.append(float(pred_prob[0, 0, 10, 10].cpu().numpy()) * max_precip_scale) 
             
     final_grid = current_window[0, -1, 0, :, :].cpu().numpy().tolist()
@@ -44,7 +42,6 @@ def run_autoregressive_loop(initial_window, max_precip_scale=20.0):
 # --- ENDPOINT 1: LIVE DATA (Open-Meteo) ---
 @app.get("/predict_live")
 def predict_live():
-    # Fetch live Hyderabad/Secunderabad data
     url = "https://api.open-meteo.com/v1/forecast?latitude=17.44&longitude=78.50&hourly=precipitation,dew_point_2m,surface_pressure,wind_speed_10m,wind_direction_10m&past_days=1&forecast_days=0"
     response = requests.get(url).json()
     hourly = response['hourly']
@@ -58,7 +55,6 @@ def predict_live():
     h_u = [-s * math.sin(math.radians(d)) for s, d in zip(w_speed, w_dir)]
     h_v = [-s * math.cos(math.radians(d)) for s, d in zip(w_speed, w_dir)]
     
-    # Gaussian spatial mask to simulate a local system and prevent flat-grid panic
     x, y = np.meshgrid(np.linspace(-1, 1, 21), np.linspace(-1, 1, 21))
     spatial_mask = np.exp(-((np.sqrt(x*x + y*y))**2 / 0.8)) 
 
@@ -72,7 +68,11 @@ def predict_live():
 
     future_precip, final_grid = run_autoregressive_loop(torch.tensor(tensor_data).to(device), max_precip_scale=5.0)
     
+    # Calculate Live Time
+    current_time = pd.Timestamp.now(tz='Asia/Kolkata').strftime('%B %d, %Y at %I:%M %p IST')
+    
     return {
+        "target_date": current_time,
         "historical_24h": {"precip": h_precip, "dew": h_dew, "u_wind": h_u, "v_wind": h_v, "pressure": h_pres},
         "future_24h_precip": future_precip,
         "probability_grid": final_grid
@@ -86,6 +86,10 @@ def predict_historical():
     max_idx = np.unravel_index(precip_array.argmax(), precip_array.shape)[0]
     start_idx = max(0, max_idx - 24)
     past_24h = ds.isel(valid_time=slice(start_idx, start_idx + 24))
+    
+    # Extract the exact timestamp of "T-Zero"
+    t_zero_np = past_24h['valid_time'].values[-1]
+    t_zero_str = pd.to_datetime(t_zero_np).strftime('%B %d, %Y at %H:%M UTC')
     
     h_precip = np.nan_to_num(past_24h['tp'].values)
     h_dew = np.nan_to_num(past_24h['d2m'].values)
@@ -103,12 +107,13 @@ def predict_historical():
     future_precip, final_grid = run_autoregressive_loop(torch.tensor(tensor_data).to(device), max_precip_scale=20.0)
     
     return {
+        "target_date": t_zero_str,
         "historical_24h": {
             "precip": (h_precip[:, 10, 10] * 1000).tolist(),
-            "dew": (h_dew[:, 10, 10] - 273.15).tolist(), # Kelvin to C
+            "dew": (h_dew[:, 10, 10] - 273.15).tolist(), 
             "u_wind": h_u[:, 10, 10].tolist(),
             "v_wind": h_v[:, 10, 10].tolist(),
-            "pressure": (h_pres[:, 10, 10] / 100).tolist() # Pa to hPa
+            "pressure": (h_pres[:, 10, 10] / 100).tolist() 
         },
         "future_24h_precip": future_precip,
         "probability_grid": final_grid
